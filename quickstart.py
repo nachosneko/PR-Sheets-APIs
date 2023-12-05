@@ -40,16 +40,45 @@ def create_spreadsheet_copy(drive_service, spreadsheet_id, new_title):
         # Copy the spreadsheet using Google Drive API
         drive_response = drive_service.files().copy(fileId=spreadsheet_id, body={'name': new_title}).execute()
         new_spreadsheet_id = drive_response['id']
+
+        # Copy permissions from the original spreadsheet to the new one
+        copy_permissions(drive_service, spreadsheet_id, new_spreadsheet_id)
+
         return new_spreadsheet_id
     except HttpError as err:
         print(f"error creating copy: {err}")
         return None
 
-async def set_spreadsheet_id(interaction, new_spreadsheet_id):
+def copy_permissions(service, original_spreadsheet_id, new_spreadsheet_id):
+    try:
+        # Get the permissions from the original spreadsheet
+        permissions = service.permissions().list(fileId=original_spreadsheet_id).execute()
+
+        # Copy each permission to the new spreadsheet
+        for permission in permissions.get('permissions', []):
+            # Exclude non-writable fields from the request body
+            permission_body = {key: permission[key] for key in permission.keys() if key in ['role', 'type']}
+            
+            # Add emailAddress field for 'user' or 'group' type
+            if permission.get('type') in ['user', 'group']:
+                permission_body['emailAddress'] = permission.get('emailAddress', 'placeholder@example.com')
+
+            # Exclude owner permissions
+            if permission.get('role') != 'owner':
+                service.permissions().create(
+                    fileId=new_spreadsheet_id,
+                    body=permission_body
+                ).execute()
+
+        print("Permissions copied successfully.")
+    except Exception as e:
+        print(f"Error copying permissions: {e}")
+
+async def set_spreadsheet_id(new_spreadsheet_id):
     global SAMPLE_SPREADSHEET_ID
     SAMPLE_SPREADSHEET_ID = new_spreadsheet_id
 
-async def set_pr_name(interaction, new_pr_name):
+async def set_pr_name(new_pr_name):
     global PR_NAME
     PR_NAME = new_pr_name
 
@@ -79,7 +108,7 @@ async def copy_and_set(
     SAMPLE_SPREADSHEET_ID = new_spreadsheet_id
 
     # Acknowledge the interaction immediately
-    await interaction.response.send_message(content="processing...", ephemeral=True)
+    await interaction.response.send_message(content="processing...")
 
     creds = None
 
