@@ -1,5 +1,5 @@
 import os.path
-
+import numpy as np
 import typing
 from typing import Optional
 
@@ -13,6 +13,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
+
+from paginator import EmbedPaginatorSession
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -148,7 +150,7 @@ async def copy_and_send(
             embed = discord.Embed(
                 title=f"completed sheet(s) copy for {PR_NAME}",
                 description=f"original spreadsheet: [link](https://docs.google.com/spreadsheets/d/{SAMPLE_SPREADSHEET_ID})",
-                color=0x00ff00
+                color=0x00ff00,
             )
             # Create a copy of the spreadsheet for each mentioned user
             for mention in mentions:
@@ -159,17 +161,17 @@ async def copy_and_send(
                     continue
 
                 # Create a copy of the spreadsheet (time-consuming operation)
-                sheet_id = await bot.loop.run_in_executor(None, create_spreadsheet_copy, drive_service, SAMPLE_SPREADSHEET_ID, f"{PR_NAME} - {member.name}")
+                user_sheet_id = await bot.loop.run_in_executor(None, create_spreadsheet_copy, drive_service, SAMPLE_SPREADSHEET_ID, f"{PR_NAME} - {member.name}")
 
-                if sheet_id:
+                if user_sheet_id:
                     embed.add_field(
                         name=f"{member.display_name}'s copy",
-                        value=f"[{PR_NAME} party rank](https://docs.google.com/spreadsheets/d/{sheet_id})\n```{sheet_id}```",
+                        value=f"[{PR_NAME} party rank](https://docs.google.com/spreadsheets/d/{user_sheet_id})\n```{user_sheet_id}```",
                         inline=False
                     )
-
+                    
                     # Send a DM to the mentioned user
-                    dm_message = f"hello!! here is your {PR_NAME} sheet\nhttps://docs.google.com/spreadsheets/d/{sheet_id}"
+                    dm_message = f"hello!! here is your {PR_NAME} sheet\nhttps://docs.google.com/spreadsheets/d/{user_sheet_id}"
                     await member.send(content=dm_message)
                 else:
                     await interaction.followup.send(content=f"error occurred during processing for {member.mention}.")
@@ -177,6 +179,5 @@ async def copy_and_send(
             await interaction.followup.send(embed=embed)
     except HttpError as err:
         await interaction.followup.send(content=f"error accessing spreadsheet: {err}")
-
 
 bot.run('BOT_TOKEN')
