@@ -39,19 +39,48 @@ def create_spreadsheet_copy(drive_service, spreadsheet_id, new_title):
     try:
         # Copy the spreadsheet using Google Drive API
         drive_response = drive_service.files().copy(fileId=spreadsheet_id, body={'name': new_title}).execute()
-        new_spreadsheet_id = drive_response['id']
-        return new_spreadsheet_id
+        sheet_id = drive_response['id']
+
+        # Copy permissions from the original spreadsheet to the new one
+        copy_permissions(drive_service, spreadsheet_id, sheet_id)
+
+        return sheet_id
     except HttpError as err:
         print(f"error creating copy: {err}")
         return None
 
-async def set_spreadsheet_id(interaction, new_spreadsheet_id):
-    global SAMPLE_SPREADSHEET_ID
-    SAMPLE_SPREADSHEET_ID = new_spreadsheet_id
+def copy_permissions(service, original_spreadsheet_id, sheet_id):
+    try:
+        # Get the permissions from the original spreadsheet
+        permissions = service.permissions().list(fileId=original_spreadsheet_id).execute()
 
-async def set_pr_name(interaction, new_pr_name):
+        # Copy each permission to the new spreadsheet
+        for permission in permissions.get('permissions', []):
+            # Exclude non-writable fields from the request body
+            permission_body = {key: permission[key] for key in permission.keys() if key in ['role', 'type']}
+            
+            # Add emailAddress field for 'user' or 'group' type
+            if permission.get('type') in ['user', 'group']:
+                permission_body['emailAddress'] = permission.get('emailAddress', 'placeholder@example.com')
+
+            # Exclude owner permissions
+            if permission.get('role') != 'owner':
+                service.permissions().create(
+                    fileId=sheet_id,
+                    body=permission_body
+                ).execute()
+
+        print("Permissions copied successfully.")
+    except Exception as e:
+        print(f"Error copying permissions: {e}")
+
+async def set_spreadsheet_id(sheet_id):
+    global SAMPLE_SPREADSHEET_ID
+    SAMPLE_SPREADSHEET_ID = sheet_id
+
+async def set_pr_name(pr_name):
     global PR_NAME
-    PR_NAME = new_pr_name
+    PR_NAME = pr_name
 
 @bot.event
 async def on_ready():
@@ -62,24 +91,24 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-@bot.tree.command(name="copy_and_set")
+@bot.tree.command(name="copy_and_send")
 @app_commands.describe(
-    new_pr_name="input pr name",
-    new_spreadsheet_id="input spreadsheet id (after /d/ in links)",
-    ping_users="mention users in DMs (optional)"
+    pr_name="input sheet(s) name",
+    sheet_id="input spreadsheet id",
+    send_to=" mention user(s) to DM the sheet(s) to"
 )
-async def copy_and_set(
+async def copy_and_send(
     interaction: discord.Interaction, 
-    new_pr_name: str, 
-    new_spreadsheet_id: str,
-    ping_users: typing.Optional[str] = None  # Use string for mentions
+    pr_name: str, 
+    sheet_id: str,
+    send_to: typing.Optional[str] = None  # Use string for mentions
 ):
     global PR_NAME, SAMPLE_SPREADSHEET_ID
-    PR_NAME = new_pr_name
-    SAMPLE_SPREADSHEET_ID = new_spreadsheet_id
+    PR_NAME = pr_name
+    SAMPLE_SPREADSHEET_ID = sheet_id
 
     # Acknowledge the interaction immediately
-    await interaction.response.send_message(content="processing...", ephemeral=True)
+    await interaction.response.send_message(content="processing...")
 
     creds = None
 
@@ -114,8 +143,13 @@ async def copy_and_set(
             await interaction.followup.send(content="no authorization.")
         else:
             # Parse mentions from the command string
-            mentions = [mention for mention in ping_users.split() if mention.startswith("<@")]
+            mentions = [mention for mention in send_to.split() if mention.startswith("<@")]
             
+            embed = discord.Embed(
+                title=f"completed sheet(s) copy for {PR_NAME}",
+                description=f"original spreadsheet: [link](https://docs.google.com/spreadsheets/d/{SAMPLE_SPREADSHEET_ID})",
+                color=0x00ff00
+            )
             # Create a copy of the spreadsheet for each mentioned user
             for mention in mentions:
                 user_id = int(mention.strip("<@!>"))
@@ -125,20 +159,24 @@ async def copy_and_set(
                     continue
 
                 # Create a copy of the spreadsheet (time-consuming operation)
-                new_spreadsheet_id = await bot.loop.run_in_executor(None, create_spreadsheet_copy, drive_service, SAMPLE_SPREADSHEET_ID, f"{PR_NAME} - {member.name}")
+                sheet_id = await bot.loop.run_in_executor(None, create_spreadsheet_copy, drive_service, SAMPLE_SPREADSHEET_ID, f"{PR_NAME} - {member.name}")
 
-                if new_spreadsheet_id:
-                    message = f"sent a copy for {member.mention}: ([{PR_NAME} Party Rank](https://docs.google.com/spreadsheets/d/{new_spreadsheet_id}))"
-                    await interaction.followup.send(content=message)
+                if sheet_id:
+                    embed.add_field(
+                        name=f"{member.display_name}'s copy",
+                        value=f"[{PR_NAME} party rank](https://docs.google.com/spreadsheets/d/{sheet_id})\n```{sheet_id}```",
+                        inline=False
+                    )
 
                     # Send a DM to the mentioned user
-                    dm_message = f"hello!! here is your {PR_NAME} sheet: [Link](https://docs.google.com/spreadsheets/d/{new_spreadsheet_id})"
+                    dm_message = f"hello!! here is your {PR_NAME} sheet\nhttps://docs.google.com/spreadsheets/d/{sheet_id}"
                     await member.send(content=dm_message)
                 else:
                     await interaction.followup.send(content=f"error occurred during processing for {member.mention}.")
 
+            await interaction.followup.send(embed=embed)
     except HttpError as err:
         await interaction.followup.send(content=f"error accessing spreadsheet: {err}")
 
 
-bot.run('BOT_TOKEN')
+bot.run('MTE2OTAxMzc5Mjg0MDA5Nzk1Mw.G5Azm9.qXN_I3czPqLw788TFZBqoU2olTGhNdhCITuhho')
