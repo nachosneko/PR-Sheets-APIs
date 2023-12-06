@@ -179,4 +179,4 @@ async def copy_and_send(
         await interaction.followup.send(content=f"error accessing spreadsheet: {err}")
 
 
-bot.run('MTE2OTAxMzc5Mjg0MDA5Nzk1Mw.G5Azm9.qXN_I3czPqLw788TFZBqoU2olTGhNdhCITuhho')
+bot.run('BOT_TOKEN')
